@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 import collections
 import yolo_model
+import os
+import argparse
 
 LEFT_SHOULDER  = 5
 RIGHT_SHOULDER = 6
@@ -14,6 +16,10 @@ LEFT_KNEE      = 13
 RIGHT_KNEE     = 14
 
 MAX_X = 320
+
+#MODEL_NAME='yolov8n-pose.pt'
+MODEL_NAME='yolo11n-pose.pt'
+
 is_60 = True
 if is_60 == False:
 # 30 frmae
@@ -180,88 +186,186 @@ def draw_image(width, height, data):
     #cv2.imshow('MediaPipe Pose Train', image)
     #cv2.waitKey(0)
     return image
+def get_landmarks(full_path,file, output_dir, output_filename):
+ 
+    # yolo model
+    model = YOLO(MODEL_NAME) 
 
-# 載入 YOLOv8 Pose 模型（nano版本速度快，適合webcam）
-model = YOLO('yolov8n-pose.pt')  # 可改為 yolov8s-pose.pt, yolov8m-pose.pt ...
+    res_point = []
+    cnt = 0
+    data = []
 
-# 開啟 webcam（0 是預設攝影機）
-cap = cv2.VideoCapture("Fall_Trim.mp4")
-q = collections.deque([])
-
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    # 偵測人體姿勢
-    results = model(frame, verbose=False)
-
-    #for r in results:
-    #    #print(r.keypoints.xy)
-    #    print("xyn",r.keypoints)
-    #    print("xyn",r.keypoints.xyn)
+    train_cnt = 0
+  
+    #image = cv2.imread(root_path+"\\"+file)
     
+    cap = cv2.VideoCapture(full_path)
+    print(full_path)
+    while cap.isOpened():
+        success, frame = cap.read()
+        if frame is None:
+            print("Ignoring empty frame.")
+            break
+            
+        #frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # 偵測人體姿勢
+        results = model(frame, verbose=False)
+        keypoints_tensor = results[0].keypoints  # 是個 Keypoints 物件
+        tensor_data = keypoints_tensor.data
+        keypoints_list = tensor_data.tolist()
+
+        if len(keypoints_list) > 0 and len(keypoints_list[0]) > 0:
+            res = get_point(frame.shape[1], frame.shape[0], keypoints_list[0])
+            #print("get_point",res)
+            curv_data = get_image_key_landmarks(frame, res)
+
+            if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
+                # print("curv_data",curv_data)
+                data.append(curv_data)
+                cnt +=1
+
+        if cnt == FRAMECNT:
+
+            train_image = draw_image(640,640,data)
+            cv2.imshow('MediaPipe Pose Org', train_image)    
+            print(output_dir + "\\" + output_filename.replace(" ", "_") + "_" + file.replace(" ", "_") + "_org_" + str(train_cnt) + ".png")
+         
+            cv2.imwrite(output_dir+"_org" + "\\" + output_filename + "_" + file.replace(" ", "_") + "_" + str(train_cnt) + "_org_"+ ".png", frame)
+            cv2.imwrite(output_dir + "\\" + output_filename + "_" + file.replace(" ", "_") + "_" + str(train_cnt) + "_train_" + ".png", train_image)
+            train_cnt+=1
+            cnt=0
+            data=[]
+
+        cv2.imshow('MediaPipe Pose Org', frame)    
+        cv2.waitKey(1)
+
+def train():
+    data_dir = r'D:\ai\pose_detect\KNN_image_train\dataset_0610_60'  # 換成你的資料夾
+    yolo_model.train("pose_model.pth",data_dir)
+
+def data_converter():
+    root_path = r"F:\ai_dataset\falling_detect\Fall_video_0607\normal"
+
+    files = os.listdir(root_path)
+    for file in files:
+        full_path = root_path + "\\"+file
+        get_landmarks(full_path, file, "output_normal_60", "normal")
+
+def predict(video):
+    cap = None
+    if video:
+        print(f"執行預測，來源影片為：{video}")
+        cap = cv2.VideoCapture(video)
+    else:
+        # 開啟 webcam（0 是預設攝影機）
+        print("執行預測（使用預設來源）")
+        cap = cv2.VideoCapture(0)
+
+    pose_model, transform = yolo_model.load_model();
+    # 載入 YOLOv8 Pose 模型（nano版本速度快，適合webcam）
+    model = YOLO(MODEL_NAME)  # 可改為 yolov8s-pose.pt, yolov8m-pose.pt ...
     
-    keypoints_tensor = results[0].keypoints  # 是個 Keypoints 物件
-
-    #print(keypoints_tensor.xyn.tolist())
-
-    tensor_data = keypoints_tensor.data
-    # 轉成 list
-    keypoints_list = tensor_data.tolist()
-    #keypoints_list = keypoints_tensor.xyn.tolist()
-    
-    #for peoples in keypoints_list:
-    #    for k in peoples:
-    #        print(k)
-
-    #print("keypoints_list",keypoints_list)
-    if len(keypoints_list) > 0 and len(keypoints_list[0]) > 0:
-        res = get_point(frame.shape[1], frame.shape[0], keypoints_list[0])
-        #print("get_point",res)
-        curv_data = get_image_key_landmarks(frame, res)
-
-        if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
-            # print("curv_data",curv_data)
-            q.append(curv_data)
-    
-    pred_res = []
-    if len(q) == FRAMECNT:        
-        curv_image = draw_image(640,640,q)
-        pred_res = yolo_model.predict(curv_image)
-        cv2.imshow('MediaPipe Pose Train', curv_image)
-        q.popleft()
-    
-    # 在畫面上標示 keypoints
-    annotated_frame = results[0].plot()
-    
-    if len(pred_res) > 0:
-        if pred_res[0] == yolo_model.class_names[1]:
-            txt_color = (0, 255, 0)
-        else:
-            txt_color = (255, 0, 0)
-        res_display = pred_res[0]
-
-        if pred_res[1] != -1:
-            res_display += " " +str(pred_res[1])
-    
-        cv2.putText(annotated_frame, f'Prediction: {res_display}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,txt_color , 2)
-    
+    q = collections.deque([])
 
 
-    # 顯示畫面
-    cv2.imshow("YOLOv8 Pose", annotated_frame)
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    # 印出 keypoints 資料
-    #for person_id, person in enumerate(results[0].keypoints.data):
-    #    print(f"Person {person_id}:")
-    #    for i, (x, y, conf) in enumerate(person):
-    #        print(f"  Keypoint {i}: x={x:.1f}, y={y:.1f}, conf={conf:.2f}")
-    #    print("-" * 30)
-    #
-    # 按 'q' 鍵離開
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        # 偵測人體姿勢
+        results = model(frame, verbose=False)
 
-cap.release()
-cv2.destroyAllWindows()
+        #for r in results:
+        #    #print(r.keypoints.xy)
+        #    print("xyn",r.keypoints)
+        #    print("xyn",r.keypoints.xyn)
+
+        keypoints_tensor = results[0].keypoints  # 是個 Keypoints 物件
+
+        #print(keypoints_tensor.xyn.tolist())
+
+        tensor_data = keypoints_tensor.data
+        # 轉成 list
+        keypoints_list = tensor_data.tolist()
+        #keypoints_list = keypoints_tensor.xyn.tolist()
+
+        #for peoples in keypoints_list:
+        #    for k in peoples:
+        #        print(k)
+
+        #print("keypoints_list",keypoints_list)
+        if len(keypoints_list) > 0 and len(keypoints_list[0]) > 0:
+            res = get_point(frame.shape[1], frame.shape[0], keypoints_list[0])
+            #print("get_point",res)
+            curv_data = get_image_key_landmarks(frame, res)
+
+            if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
+                # print("curv_data",curv_data)
+                q.append(curv_data)
+
+        pred_res = []
+        if len(q) == FRAMECNT:        
+            curv_image = draw_image(640,640,q)
+            pred_res = yolo_model.predict(pose_model, transform,curv_image)
+            cv2.imshow('MediaPipe Pose Train', curv_image)
+            q.popleft()
+
+        # 在畫面上標示 keypoints
+        annotated_frame = results[0].plot()
+
+        if len(pred_res) > 0:
+            if pred_res[0] == yolo_model.class_names[1]:
+                txt_color = (0, 255, 0)
+            else:
+                txt_color = (255, 0, 0)
+            res_display = pred_res[0]
+
+            if pred_res[1] != -1:
+                res_display += " " +str(pred_res[1])
+
+            cv2.putText(annotated_frame, f'Prediction: {res_display}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,txt_color , 2)
+
+        # 顯示畫面
+        cv2.imshow("YOLOv8 Pose", annotated_frame)
+
+        # 印出 keypoints 資料
+        #for person_id, person in enumerate(results[0].keypoints.data):
+        #    print(f"Person {person_id}:")
+        #    for i, (x, y, conf) in enumerate(person):
+        #        print(f"  Keypoint {i}: x={x:.1f}, y={y:.1f}, conf={conf:.2f}")
+        #    print("-" * 30)
+        #
+        # 按 'q' 鍵離開
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+def main():
+    parser = argparse.ArgumentParser(description="AI 工具命令列介面")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # train 子命令
+    parser_train = subparsers.add_parser("train", help="執行訓練程序")
+
+    # predict 子命令
+    parser_predict = subparsers.add_parser("predict", help="執行預測程序")
+    parser_predict.add_argument("--video", help="指定影片路徑 (選用)")
+
+    # data_converter 子命令
+    parser_converter = subparsers.add_parser("data_converter", help="執行資料轉換")
+
+    args = parser.parse_args()
+
+    # 根據子命令執行對應函式
+    if args.command == "train":
+        train()
+    elif args.command == "predict":
+        predict(args.video)
+    elif args.command == "data_converter":
+        data_converter()
+
+if __name__ == "__main__":
+    main()

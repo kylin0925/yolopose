@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -6,6 +7,11 @@ from PIL import Image
 import numpy as np
 import time
 import os
+
+import torch.optim as optim
+from torchvision import datasets, transforms, models
+from torch.utils.data import DataLoader, random_split
+import matplotlib.pyplot as plt
 
 MODEL_PTH = "cnn_model_0612_2_60.pth"
 
@@ -45,28 +51,32 @@ class EfficientCNN(nn.Module):
         x = self.classifier(x)
         return x
 
-
-# ---------- 載入模型 ----------
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class_names = ['fall', 'normal']  # <-- 修改成你實際訓練的類別
-num_classes = len(class_names)
 
-#model = SimpleCNN(num_classes)
-model = EfficientCNN(num_classes)
-# 30 frame
-model.load_state_dict(torch.load(MODEL_PTH, map_location=device))
-# 60 frame
-#model.load_state_dict(torch.load("cnn_model_60frame_0527.pth", map_location=device))
-model.to(device)
-model.eval()
+def load_model():
+    # ---------- 載入模型 ----------
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("cpu")
+    
+    print(f"✅ Using device: {device}")
+    num_classes = len(class_names)
+    #model = SimpleCNN(num_classes)
+    model = EfficientCNN(num_classes)
+    # 30 frame
+    model.load_state_dict(torch.load(MODEL_PTH, map_location=device))
+    # 60 frame
+    #model.load_state_dict(torch.load("cnn_model_60frame_0527.pth", map_location=device))
+    model.to(device)
+    model.eval()
 
 # ---------- 圖像轉換 ----------
-transform = transforms.Compose([
-    transforms.Resize((640, 640)),
-    transforms.ToTensor(),
-])
+    transform = transforms.Compose([
+        transforms.Resize((640, 640)),
+        transforms.ToTensor(),
+    ])
+    return model,transform
 
-def predict(pred_image):
+def predict(model,transform,pred_image):
 
     img_pil = Image.fromarray(pred_image)
     input_tensor = transform(img_pil).unsqueeze(0).to(device)
@@ -87,3 +97,82 @@ def predict(pred_image):
         print(label, top_value)
         return [label, top_value]
 
+def train(model_file, data_dir):
+    img_size = 640
+    batch_size = 32
+    num_epochs = 30
+    # ---------------- GPU 設定 ----------------
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"✅ Using device: {device}")
+    # -----------------------------------------
+
+    # 資料預處理
+    transform = transforms.Compose([
+        transforms.Resize((img_size, img_size)),
+        transforms.ToTensor(),  # 自動轉 [0,255] -> [0.0,1.0]
+    ])
+
+    # 載入資料集
+    full_dataset = datasets.ImageFolder(data_dir, transform=transform)
+    num_classes = len(full_dataset.classes)
+    print("Label classes:", full_dataset.classes)
+
+    # 切分 train/val
+    val_size = int(0.2 * len(full_dataset))
+    train_size = len(full_dataset) - val_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)    
+
+    num_classes = len(full_dataset.classes)
+    print("Label classes:", full_dataset.classes)
+
+
+    model = EfficientCNN(num_classes).to(device)
+
+    # Loss 與 Optimizer
+    criterion = nn.CrossEntropyLoss()
+    #optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+
+    # 訓練
+    for epoch in range(num_epochs):
+        model.train()
+        running_loss, correct, total = 0.0, 0, 0
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            _, preds = torch.max(outputs, 1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+
+        acc = correct / total
+        print(f"Epoch {epoch+1}/{num_epochs} - Loss: {running_loss:.4f} - Accuracy: {acc:.4f}")
+
+    # 驗證
+    model.eval()
+    correct, total = 0, 0
+    with torch.no_grad():
+        for inputs, labels in val_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, preds = torch.max(outputs, 1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+
+    val_acc = correct / total
+    print("Validation Accuracy:", val_acc)
+
+    output_model_name = model_file
+    # 儲存模型
+    torch.save(model.state_dict(),output_model_name)
+    print("✅ 模型已儲存為",output_model_name)
