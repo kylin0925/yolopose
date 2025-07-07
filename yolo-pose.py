@@ -261,73 +261,105 @@ def predict(video):
         print("執行預測（使用預設來源）")
         cap = cv2.VideoCapture(0)
 
-    pose_model, transform = yolo_model.load_model();
+    pose_model, transform, device = yolo_model.load_model();
     # 載入 YOLOv8 Pose 模型（nano版本速度快，適合webcam）
     model = YOLO(MODEL_NAME)  # 可改為 yolov8s-pose.pt, yolov8m-pose.pt ...
-    
+    tracker_config = "botsort.yaml"
     q = collections.deque([])
 
+    id_map = collections.defaultdict(collections.deque)
 
     while cap.isOpened():
         ret, frame = cap.read()
+        
         if not ret:
             break
-
+       
+        #print(frame.shape)
         # 偵測人體姿勢
-        results = model(frame, verbose=False)
+        #results = model(frame, verbose=False)
+        results = model.track(source=frame, persist=True, tracker=tracker_config, stream=True)
 
+        print(results, dir(results))
+        for r in results:
+            if r.boxes.id is None:
+                continue  # 沒有追蹤到的跳過
+            #print(r.boxes.id.cpu().numpy().astype(int))
+            ids = r.boxes.id.cpu().numpy().astype(int)
+            keypoints = r.keypoints.data.tolist()        # 每個人的 keypoints
+            #print(keypoints)
+            for tid, kpts in zip(ids, keypoints):
+                #print(tid, kpts)
+                res = get_point(frame.shape[1], frame.shape[0], kpts)                
+                curv_data = get_image_key_landmarks(frame, res)
+                print("get_point", tid, curv_data)
+                if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
+                    # print("curv_data",curv_data)
+                    id_map[tid].append(curv_data)
+                    if len(id_map[tid]) == FRAMECNT:
+                        curv_image = draw_image(640,640,id_map[tid])
+                        pred_res = yolo_model.predict(pose_model, transform,device, curv_image)
+                        cv2.imshow('MediaPipe Pose Train' + str(tid), curv_image)
+                        id_map[tid].popleft()
         #for r in results:
         #    #print(r.keypoints.xy)
         #    print("xyn",r.keypoints)
         #    print("xyn",r.keypoints.xyn)
 
-        keypoints_tensor = results[0].keypoints  # 是個 Keypoints 物件
+        #keypoints_tensor = results[0].keypoints  # 是個 Keypoints 物件
 
-        #print(keypoints_tensor.xyn.tolist())
+        #print(results)
 
-        tensor_data = keypoints_tensor.data
+        #tensor_data = keypoints_tensor.data
         # 轉成 list
-        keypoints_list = tensor_data.tolist()
+        #keypoints_list = tensor_data.tolist()
         #keypoints_list = keypoints_tensor.xyn.tolist()
 
-        #for peoples in keypoints_list:
+        #for i, peoples in enumerate(keypoints_list):
         #    for k in peoples:
-        #        print(k)
+        #        print(i,k)
 
-        #print("keypoints_list",keypoints_list)
-        if len(keypoints_list) > 0 and len(keypoints_list[0]) > 0:
-            res = get_point(frame.shape[1], frame.shape[0], keypoints_list[0])
-            #print("get_point",res)
-            curv_data = get_image_key_landmarks(frame, res)
+        #print("keypoints_list len",len(keypoints_list))
+        #if len(keypoints_list) > 0 and len(keypoints_list[0]) > 0:
+        #    for i in range(len(keypoints_list)):
+        #        res = get_point(frame.shape[1], frame.shape[0], keypoints_list[i])                
+        #        curv_data = get_image_key_landmarks(frame, res)
+        #        print("get_point", i, curv_data)
+        #
+        #    if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
+        #        # print("curv_data",curv_data)
+        #        q.append(curv_data)
 
-            if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
-                # print("curv_data",curv_data)
-                q.append(curv_data)
+        #pred_res = []
+        #if len(q) == FRAMECNT:        
+        #    curv_image = draw_image(640,640,q)
+        #    pred_res = yolo_model.predict(pose_model, transform,device, curv_image)
+        #    cv2.imshow('MediaPipe Pose Train', curv_image)
+        #    q.popleft()
+        #    a = cv2.waitKey(0) & 0xFF
+        #    #print("get " + str(a))
+        #    if a == ord('y'):
+        #        testing_filename = "live_testing" + "\\" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S") + ".png"
+        #        print(testing_filename)
+        #        cv2.imwrite( testing_filename , curv_image)
+        ## 在畫面上標示 keypoints
+        #annotated_frame = results[0].plot()
 
-        pred_res = []
-        if len(q) == FRAMECNT:        
-            curv_image = draw_image(640,640,q)
-            pred_res = yolo_model.predict(pose_model, transform,curv_image)
-            cv2.imshow('MediaPipe Pose Train', curv_image)
-            q.popleft()
-
-        # 在畫面上標示 keypoints
-        annotated_frame = results[0].plot()
-
-        if len(pred_res) > 0:
-            if pred_res[0] == yolo_model.class_names[1]:
-                txt_color = (0, 255, 0)
-            else:
-                txt_color = (255, 0, 0)
-            res_display = pred_res[0]
-
-            if pred_res[1] != -1:
-                res_display += " " +str(pred_res[1])
-
-            cv2.putText(annotated_frame, f'Prediction: {res_display}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,txt_color , 2)
-
-        # 顯示畫面
-        cv2.imshow("YOLOv8 Pose", annotated_frame)
+        #if len(pred_res) > 0:
+        #    if pred_res[0] == yolo_model.class_names[1]:
+        #        txt_color = (0, 255, 0)
+        #    else:
+        #        txt_color = (255, 0, 0)
+        #    res_display = pred_res[0]
+        #
+        #    if pred_res[1] != -1:
+        #        res_display += " " +str(pred_res[1])
+        #
+        #    cv2.putText(annotated_frame, f'Prediction: {res_display}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,txt_color , 2)
+        #
+        ## 顯示畫面
+        #cv2.imshow("YOLOv8 Pose", annotated_frame)
+        cv2.imshow("YOLOv8 Pose", frame)
 
         # 印出 keypoints 資料
         #for person_id, person in enumerate(results[0].keypoints.data):

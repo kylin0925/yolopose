@@ -13,7 +13,8 @@ from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-MODEL_PTH = "cnn_model_0612_2_60.pth"
+#MODEL_PTH = "cnn_model_0612_2_60.pth"
+MODEL_PTH = "pose_model.pth"
 
 # ---------- 模型定義（和訓練時一樣） ----------
 class EfficientCNN(nn.Module):
@@ -63,6 +64,7 @@ def load_model():
     #model = SimpleCNN(num_classes)
     model = EfficientCNN(num_classes)
     # 30 frame
+    print("load_model", MODEL_PTH )
     model.load_state_dict(torch.load(MODEL_PTH, map_location=device))
     # 60 frame
     #model.load_state_dict(torch.load("cnn_model_60frame_0527.pth", map_location=device))
@@ -74,9 +76,9 @@ def load_model():
         transforms.Resize((640, 640)),
         transforms.ToTensor(),
     ])
-    return model,transform
+    return model,transform,device
 
-def predict(model,transform,pred_image):
+def predict(model,transform,device,pred_image):
 
     img_pil = Image.fromarray(pred_image)
     input_tensor = transform(img_pil).unsqueeze(0).to(device)
@@ -124,10 +126,6 @@ def train(model_file, data_dir):
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)    
-
-    num_classes = len(full_dataset.classes)
-    print("Label classes:", full_dataset.classes)
-
 
     model = EfficientCNN(num_classes).to(device)
 
