@@ -7,6 +7,7 @@ import collections
 import yolo_model
 import os
 import argparse
+from datetime import datetime
 
 LEFT_SHOULDER  = 5
 RIGHT_SHOULDER = 6
@@ -278,9 +279,9 @@ def predict(video):
         #print(frame.shape)
         # 偵測人體姿勢
         #results = model(frame, verbose=False)
-        results = model.track(source=frame, persist=True, tracker=tracker_config, stream=True)
+        results = model.track(source=frame, persist=True, tracker=tracker_config, stream=True, verbose=False)
 
-        print(results, dir(results))
+        #print(results, dir(results))
         for r in results:
             if r.boxes.id is None:
                 continue  # 沒有追蹤到的跳過
@@ -292,7 +293,7 @@ def predict(video):
                 #print(tid, kpts)
                 res = get_point(frame.shape[1], frame.shape[0], kpts)                
                 curv_data = get_image_key_landmarks(frame, res)
-                print("get_point", tid, curv_data)
+                #print("get_point", tid, curv_data)
                 if curv_data[0] > 0 and curv_data[1] > 0 and curv_data[2] > 0:
                     # print("curv_data",curv_data)
                     id_map[tid].append(curv_data)
@@ -301,6 +302,12 @@ def predict(video):
                         pred_res = yolo_model.predict(pose_model, transform,device, curv_image)
                         cv2.imshow('MediaPipe Pose Train' + str(tid), curv_image)
                         id_map[tid].popleft()
+                        a = cv2.waitKey(1) & 0xFF
+                        #print("get " + str(a))
+                        if a == ord('y'):
+                            testing_filename = "live_testing" + "\\" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S") + ".png"
+                            print(testing_filename)
+                            cv2.imwrite( testing_filename , curv_image)
         #for r in results:
         #    #print(r.keypoints.xy)
         #    print("xyn",r.keypoints)

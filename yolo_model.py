@@ -13,8 +13,8 @@ from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader, random_split
 import matplotlib.pyplot as plt
 
-#MODEL_PTH = "cnn_model_0612_2_60.pth"
-MODEL_PTH = "pose_model.pth"
+MODEL_PTH = "cnn_model_0612_2_60.pth"
+#MODEL_PTH = "pose_model.pth"
 
 # ---------- 模型定義（和訓練時一樣） ----------
 class EfficientCNN(nn.Module):
