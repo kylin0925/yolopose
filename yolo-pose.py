@@ -252,7 +252,9 @@ def data_converter():
         full_path = root_path + "\\"+file
         get_landmarks(full_path, file, "output_normal_60", "normal")
 
-def predict(video):
+def predict(video, conf):
+    print(video)
+    print(conf)
     cap = None
     if video:
         print(f"執行預測，來源影片為：{video}")
@@ -262,6 +264,10 @@ def predict(video):
         print("執行預測（使用預設來源）")
         cap = cv2.VideoCapture(0)
 
+    if conf == None:
+        conf = 0.55
+    else:
+        conf = float(conf)
     pose_model, transform, device = yolo_model.load_model();
     # 載入 YOLOv8 Pose 模型（nano版本速度快，適合webcam）
     model = YOLO(MODEL_NAME)  # 可改為 yolov8s-pose.pt, yolov8m-pose.pt ...
@@ -304,6 +310,20 @@ def predict(video):
                     pred_res = yolo_model.predict(pose_model, transform,device, curv_image)
                     cv2.imshow('MediaPipe Pose Train' + str(tid), curv_image)
                     id_map[tid].popleft()
+
+                    if len(pred_res) > 0:
+                        if pred_res[0] == yolo_model.class_names[1]:
+                            txt_color = (0, 255, 0)
+                        else:
+                            txt_color = (255, 0, 0)
+                        res_display = pred_res[0]
+
+                        if pred_res[1] != -1:
+                            res_display += " " +str(pred_res[1])
+                        if pred_res[1] > conf:
+                            print(pred_res)
+                            cv2.putText(frame, f'Prediction: {res_display}', (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1.2,txt_color , 2)
+
                     a = cv2.waitKey(1) & 0xFF
                     #print("get " + str(a))
                     if a == ord('y'):
@@ -394,6 +414,7 @@ def main():
     # predict 子命令
     parser_predict = subparsers.add_parser("predict", help="執行預測程序")
     parser_predict.add_argument("--video", help="指定影片路徑 (選用)")
+    parser_predict.add_argument("--conf", help="conf (選用)")
 
     # data_converter 子命令
     parser_converter = subparsers.add_parser("data_converter", help="執行資料轉換")
@@ -404,7 +425,7 @@ def main():
     if args.command == "train":
         train()
     elif args.command == "predict":
-        predict(args.video)
+        predict(args.video, args.conf)
     elif args.command == "data_converter":
         data_converter()
 
